@@ -26,496 +26,775 @@ import streams.tfc._
 import streams.world.gen.structure.RiverComponent._
 
 /** @author delvr */
-abstract class RiverComponent(val river: RiverStructure, val boundingBox: StructureBoundingBox,
-                              val upstreamOrientation: Direction, isMirrored: Boolean) extends StructureComponent(river) {
+abstract class RiverComponent(
+    val river: RiverStructure,
+    val boundingBox: StructureBoundingBox,
+    val upstreamOrientation: Direction,
+    isMirrored: Boolean
+) extends StructureComponent(river) {
 
-    implicit val cs = new DirectedCoordinates(xMin, yMin, zMin, ZPlanMax, upstreamOrientation)
+  implicit val cs =
+    new DirectedCoordinates(xMin, yMin, zMin, ZPlanMax, upstreamOrientation)
 
-    // Bounding box with extra padding for carving out shores. Unlike flows, shores are allowed to intersect other components.
-    override val paddedBox = new StructureBoundingBox(xMin - ShorePadding, yMin, zMin - ShorePadding, xMax + ShorePadding, yMax, zMax + ShorePadding)
+  // Bounding box with extra padding for carving out shores. Unlike flows, shores are allowed to intersect other components.
+  override val paddedBox = new StructureBoundingBox(
+    xMin - ShorePadding,
+    yMin,
+    zMin - ShorePadding,
+    xMax + ShorePadding,
+    yMax,
+    zMax + ShorePadding
+  )
 
-    protected val liquid = river.liquid
+  protected val liquid = river.liquid
 
-    protected val flowPlan: FlowPlan = fill(XPlanSize, ZPlanSize)(None)
+  protected val flowPlan: FlowPlan = fill(XPlanSize, ZPlanSize)(None)
 
-    // WORLD coordinates, as opposed to the translated/mirrored/rotated local coordinates used elsewhere
-    val shores = mutable.Set[XZ]()
+  // WORLD coordinates, as opposed to the translated/mirrored/rotated local coordinates used elsewhere
+  val shores = mutable.Set[XZ]()
 
-    private val valleys = mutable.Set[XZ]()
-    private val shoreDistances = mutable.Map[XZ, Int]().withDefault(distanceFromShore)
+  private val valleys = mutable.Set[XZ]()
+  private val shoreDistances =
+    mutable.Map[XZ, Int]().withDefault(distanceFromShore)
 
-    var widthStretch = -1
+  var widthStretch = -1
 
-    protected var straightUpstream: Option[RiverUpstreamComponent] = None
-    protected var   curvedUpstream: Option[RiverUpstreamComponent] = None
+  protected var straightUpstream: Option[RiverUpstreamComponent] = None
+  protected var curvedUpstream: Option[RiverUpstreamComponent] = None
 
-    // Surface and roof levels are set by "Z-Lines" which are slices of the flow model starting from downstream (z = 0)
-    val roofLevels = new Array[Int](ZPlanSize)
-    val maxSurfaceLevels = new Array[Int](ZPlanSize)
+  // Surface and roof levels are set by "Z-Lines" which are slices of the flow model starting from downstream (z = 0)
+  val roofLevels = new Array[Int](ZPlanSize)
+  val maxSurfaceLevels = new Array[Int](ZPlanSize)
 
-    val surfaceLevelsUnits = new Array[Int](ZPlanSize) // Units: 7 fractions per block, to account for flow decay
+  val surfaceLevelsUnits =
+    new Array[Int](
+      ZPlanSize
+    ) // Units: 7 fractions per block, to account for flow decay
 
-    // Components can be mirrored on the model's X-axis (left curves become right curves, etc.)
-    protected def mirrored(orientation: Direction) = if(isMirrored) orientation.opposite else orientation
-    private def mirrored(flow: Flow) = flow.map{case (dx, dz) => if(isMirrored) (-dx, dz) else (dx, dz)}
-    private def xMirrored(p: FlowPlan, x: Int) = if(isMirrored) xFlowPlanMax(p) - x else x
-    private def zMirrored(p: FlowPlan, z: Int) = if(upstreamOrientation == North || upstreamOrientation == West) zFlowPlanMax(p) - z else z
+  // Components can be mirrored on the model's X-axis (left curves become right curves, etc.)
+  protected def mirrored(orientation: Direction) =
+    if (isMirrored) orientation.opposite else orientation
+  private def mirrored(flow: Flow) = flow.map { case (dx, dz) =>
+    if (isMirrored) (-dx, dz) else (dx, dz)
+  }
+  private def xMirrored(p: FlowPlan, x: Int) =
+    if (isMirrored) xFlowPlanMax(p) - x else x
+  private def zMirrored(p: FlowPlan, z: Int) = if (
+    upstreamOrientation == North || upstreamOrientation == West
+  ) zFlowPlanMax(p) - z
+  else z
 
-    protected def straightOffset(p: FlowPlan): Option[Int] = (0 to xFlowPlanMax(p)).find(x => p(xMirrored(p, x))(zFlowPlanMax(p)).isDefined)
-    protected def curvedOffset(p: FlowPlan, zMirror: Boolean = true): Option[Int] =
-        (0 to zFlowPlanMax(p)).find(z => p(0)(if(zMirror) zMirrored(p, z) else z).isDefined || p(xFlowPlanMax(p))(if(zMirror) zMirrored(p, z) else z).isDefined)
+  protected def straightOffset(p: FlowPlan): Option[Int] =
+    (0 to xFlowPlanMax(p)).find(x =>
+      p(xMirrored(p, x))(zFlowPlanMax(p)).isDefined
+    )
+  protected def curvedOffset(
+      p: FlowPlan,
+      zMirror: Boolean = true
+  ): Option[Int] =
+    (0 to zFlowPlanMax(p)).find(z =>
+      p(0)(if (zMirror) zMirrored(p, z) else z).isDefined || p(xFlowPlanMax(p))(
+        if (zMirror) zMirrored(p, z) else z
+      ).isDefined
+    )
 
-    private def flowDefined(x: Int, z: Int) = isWithin(flowPlan, x, z) && flowPlan(x)(z).isDefined
+  private def flowDefined(x: Int, z: Int) =
+    isWithin(flowPlan, x, z) && flowPlan(x)(z).isDefined
 
-    val downstreamComponent: Option[RiverComponent]
-    protected def upstreamComponents: Seq[RiverUpstreamComponent] = Seq(straightUpstream, curvedUpstream).flatten
+  val downstreamComponent: Option[RiverComponent]
+  protected def upstreamComponents: Seq[RiverUpstreamComponent] =
+    Seq(straightUpstream, curvedUpstream).flatten
 
-    def downstreamLevel(z: Int, levelType: RiverComponent => Array[Int], offset: Int = 1): Option[Int] = {
-        val dsz = z - offset
-        if(dsz >= 0) Some(levelType(this)(dsz))
-        else downstreamComponent.flatMap(_.downstreamLevel(dsz + ZPlanSize, levelType, 0))
+  def downstreamLevel(
+      z: Int,
+      levelType: RiverComponent => Array[Int],
+      offset: Int = 1
+  ): Option[Int] = {
+    val dsz = z - offset
+    if (dsz >= 0) Some(levelType(this)(dsz))
+    else
+      downstreamComponent.flatMap(
+        _.downstreamLevel(dsz + ZPlanSize, levelType, 0)
+      )
+  }
+
+  def straightUpstreamLevel(
+      z: Int,
+      levelType: RiverComponent => Array[Int],
+      offset: Int = 1
+  ): Option[Int] = {
+    val usz = z + offset
+    if (usz <= ZPlanMax) Some(levelType(this)(usz))
+    else
+      straightUpstream.flatMap(
+        _.straightUpstreamLevel(usz - ZPlanSize, levelType, 0)
+      )
+  }
+
+  def curvedUpstreamLevel(
+      x: Int,
+      levelType: RiverComponent => Array[Int],
+      offset: Int = 1
+  ): Option[Int] = {
+    if (!isMirrored) {
+      val usx = x + offset
+      if (usx <= XPlanMax) None
+      else
+        curvedUpstream.flatMap(
+          _.straightUpstreamLevel(usx - XPlanSize, levelType, 0)
+        )
+    } else {
+      val usx = x - offset
+      if (usx >= 0) None
+      else
+        curvedUpstream.flatMap(
+          _.straightUpstreamLevel(usx + XPlanSize, levelType, 0)
+        )
     }
+  }
 
-    def straightUpstreamLevel(z: Int, levelType: RiverComponent => Array[Int], offset: Int = 1): Option[Int] = {
-        val usz = z + offset
-        if(usz <= ZPlanMax) Some(levelType(this)(usz))
-        else straightUpstream.flatMap(_.straightUpstreamLevel(usz - ZPlanSize, levelType, 0))
+  def upstreamLevels(
+      x: Int,
+      z: Int,
+      levelType: RiverComponent => Array[Int],
+      offset: Int = 1
+  ): Seq[Int] =
+    Seq(
+      straightUpstreamLevel(z, levelType, offset),
+      curvedUpstreamLevel(x, levelType, offset)
+    ).flatten
+
+  private def flowDecayAt(z: Int) = flowDecay(clamped(surfaceLevelsUnits, z))
+
+  def hasCurve = curvedUpstream.isDefined
+  def isJunction = straightUpstream.isDefined && curvedUpstream.isDefined
+  def isSource = straightUpstream.isEmpty && curvedUpstream.isEmpty
+
+  // -----------------------------------------------------------------------------------------------------------------
+  // Generating
+  // -----------------------------------------------------------------------------------------------------------------
+  protected def newUpstreamComponent(
+      offset: Int,
+      direction: Direction,
+      uncommitted: Seq[RiverComponent],
+      mirrored: Boolean
+  )(implicit
+      bac: IBlockAccess,
+      random: Random
+  ): Option[RiverUpstreamComponent] = {
+    val (xBoxSize, zBoxSize) =
+      if (direction == South || direction == North) (XPlanSize, ZPlanSize)
+      else (ZPlanSize, XPlanSize)
+    val bounds = boundingBox.adjacentBox(
+      direction,
+      xBoxSize,
+      bac.height,
+      zBoxSize,
+      newUpstreamComponentOffset(offset, mirrored)
+    )
+    val next = new RiverUpstreamComponent(this, bounds, direction, mirrored)
+    if (next.isValid(uncommitted)) Some(next) else None
+  }
+
+  private def newUpstreamComponentOffset(offset: Int, mirrored: Boolean) =
+    offset - (if (mirrored)
+                XModelPlanSize - ModelPlanRiverStartX - ModelPlanRiverWidth
+              else ModelPlanRiverStartX)
+
+  protected def stretchNorthSouth(model: FlowPlan): FlowPlan = {
+    val stretched: FlowPlan =
+      fill(xFlowPlanLength(model), zFlowPlanLength(flowPlan))(None)
+    val zModelStretchLimit = curvedOffset(model, zMirror = false)
+    val stretchRatio: Float = zModelStretchLimit match {
+      case Some(limit) => (MaxStretch + limit).toFloat / limit.toFloat
+      case None =>
+        (MaxStretch * 2 + zFlowPlanLength(model)).toFloat / zFlowPlanLength(
+          model
+        ).toFloat
     }
+    for (
+      x <- 0 to xFlowPlanMax(stretched);
+      z <- 0 to zFlowPlanMax(stretched)
+    ) {
+      zModelStretchLimit match {
+        case Some(zl) if z - MaxStretch >= zl =>
+          if (z - MaxStretch <= zFlowPlanMax(model))
+            stretched(x)(z) = model(x)(z - MaxStretch)
+        case _ =>
+          stretched(x)(z) = clamped(model(x), round(z.toFloat / stretchRatio))
+      }
+    }
+    stretched
+  }
 
-    def curvedUpstreamLevel(x: Int, levelType: RiverComponent => Array[Int], offset: Int = 1): Option[Int] = {
-        if(!isMirrored) {
-            val usx = x + offset
-            if(usx <= XPlanMax) None
-            else curvedUpstream.flatMap(_.straightUpstreamLevel(usx - XPlanSize, levelType, 0))
-        } else {
-            val usx = x - offset
-            if(usx >= 0) None
-            else curvedUpstream.flatMap(_.straightUpstreamLevel(usx + XPlanSize, levelType, 0))
+  protected def stretchEastWest(model: FlowPlan): FlowPlan = {
+    val stretched: FlowPlan =
+      fill(xFlowPlanLength(flowPlan), zFlowPlanLength(model))(None)
+    val xModelStretchStart = ModelPlanRiverStartX + ModelPlanRiverWidth
+    val stretchRatio: Float = (xFlowPlanLength(
+      model
+    ) - xModelStretchStart + MaxStretch).toFloat / (xFlowPlanLength(
+      model
+    ) - xModelStretchStart).toFloat
+    for (
+      x <- 0 to xFlowPlanMax(stretched);
+      z <- 0 to zFlowPlanMax(stretched)
+    ) {
+      if (x - MaxStretch < xModelStretchStart) {
+        if (x - MaxStretch >= 0)
+          stretched(x)(z) = model(x - MaxStretch)(z)
+      } else
+        stretched(x)(z) =
+          model(clampedIndex(model, round(x.toFloat / stretchRatio)))(z)
+    }
+    for (
+      x <- 0 to xFlowPlanMax(stretched);
+      z <- 0 to zFlowPlanMax(stretched)
+    ) {
+      if (
+        stretched(x)(z).isDefined && x > 0 && x < xFlowPlanMax(
+          stretched
+        ) && z > 0 && z < zFlowPlanMax(stretched)
+      )
+        if (stretched(x - 1)(z - 1).isEmpty && stretched(x + 1)(z + 1).isEmpty)
+          stretched(x)(z) = None // Repair ugly 2x2 square corners
+    }
+    stretched
+  }
+
+  protected def overlay(source: FlowPlan, target: FlowPlan) {
+    val xOffset = (xFlowPlanLength(target) - xFlowPlanLength(source)) / 2
+    for (
+      x <- 0 to xFlowPlanMax(source);
+      z <- 0 to zFlowPlanMax(source)
+    ) {
+      target(x + xOffset)(z) = combine(
+        target(x + xOffset)(z),
+        mirrored(source(xMirrored(source, x))(z))
+      )
+    }
+  }
+
+  protected def widen(
+      plan: FlowPlan,
+      amount: Int,
+      eastWest: Boolean = true,
+      northSouth: Boolean = true
+  ) {
+    for (_ <- 1 to amount) widen(plan, eastWest, northSouth)
+  }
+
+  protected def widen(plan: FlowPlan, eastWest: Boolean, northSouth: Boolean) { // Stretch a flow plan on a component
+    val justAdded = fill(xFlowPlanLength(plan), zFlowPlanLength(plan))(false)
+    for (
+      x <- 0 to xFlowPlanMax(plan);
+      z <- 0 to zFlowPlanMax(plan)
+    ) {
+      if (plan(x)(z).isEmpty) {
+        val neighborFlows = neighbors(x, z).flatMap { case (nx, nz) =>
+          if (
+            !isWithin(plan, nx, nz) || justAdded(nx)(
+              nz
+            ) || (!eastWest && nx != x) || (!northSouth && nz != z)
+          ) None
+          else plan(nx)(nz)
         }
-    }
-
-    def upstreamLevels(x: Int, z: Int, levelType: RiverComponent => Array[Int], offset: Int = 1): Seq[Int] =
-        Seq(straightUpstreamLevel(z, levelType, offset), curvedUpstreamLevel(x, levelType, offset)).flatten
-
-    private def flowDecayAt(z: Int) = flowDecay(clamped(surfaceLevelsUnits, z))
-
-    def hasCurve = curvedUpstream.isDefined
-    def isJunction = straightUpstream.isDefined && curvedUpstream.isDefined
-    def isSource = straightUpstream.isEmpty && curvedUpstream.isEmpty
-
-    //-----------------------------------------------------------------------------------------------------------------
-    // Generating
-    //-----------------------------------------------------------------------------------------------------------------
-    protected def newUpstreamComponent(offset: Int, direction: Direction, uncommitted: Seq[RiverComponent], mirrored: Boolean)
-                                      (implicit bac: IBlockAccess, random: Random): Option[RiverUpstreamComponent] = {
-        val (xBoxSize, zBoxSize) = if(direction == South || direction == North) (XPlanSize, ZPlanSize) else (ZPlanSize, XPlanSize)
-        val bounds = boundingBox.adjacentBox(direction, xBoxSize, bac.height, zBoxSize, newUpstreamComponentOffset(offset, mirrored))
-        val next = new RiverUpstreamComponent(this, bounds, direction, mirrored)
-        if(next.isValid(uncommitted)) Some(next) else None
-    }
-
-    private def newUpstreamComponentOffset(offset: Int, mirrored: Boolean) =
-        offset - (if(mirrored) XModelPlanSize - ModelPlanRiverStartX - ModelPlanRiverWidth else ModelPlanRiverStartX)
-
-    protected def stretchNorthSouth(model: FlowPlan): FlowPlan = {
-        val stretched: FlowPlan = fill(xFlowPlanLength(model), zFlowPlanLength(flowPlan))(None)
-        val zModelStretchLimit = curvedOffset(model, zMirror = false)
-        val stretchRatio: Float = zModelStretchLimit match {
-            case Some(limit) => (MaxStretch + limit).toFloat / limit.toFloat
-            case None => (MaxStretch * 2 + zFlowPlanLength(model)).toFloat / zFlowPlanLength(model).toFloat
+        if (neighborFlows.nonEmpty) {
+          val newFlow = interpolate(neighborFlows: _*)
+          plan(x)(z) = Some(normalize(newFlow._1, newFlow._2))
+          justAdded(x)(z) = true
         }
-        for(x <- 0 to xFlowPlanMax(stretched);
-            z <- 0 to zFlowPlanMax(stretched)) {
-            zModelStretchLimit match {
-                case Some(zl) if z - MaxStretch >= zl =>
-                    if(z - MaxStretch <= zFlowPlanMax(model))
-                        stretched(x)(z) = model(x)(z - MaxStretch)
-                case _ =>
-                    stretched(x)(z) = clamped(model(x), round(z.toFloat / stretchRatio))
-            }
+      }
+    }
+  }
+
+  protected def commit(implicit bac: IBlockAccess, random: Random) {
+    val flatLines = ZLine.map(isFlatAt)
+    for (z <- ZLine.reverse) {
+      maxSurfaceLevels(z) = maxSurfaceLevelAt(z, flatLines)
+      for (x <- XLine) {
+        if (flowPlan(x)(z).isEmpty)
+          if (
+            allNeighbors(x, z).exists { case (nx, nz) => flowDefined(nx, nz) }
+          ) shores += cs.xzWorld(x, z)
+      }
+    }
+    river += this
+  }
+
+  protected def isFlatAt(z: Int) = { // Rivers must be flat wherever they curve or flows don't all have a downstream match
+    if (isSource) false
+    else if (z == 0)
+      true // By design of the flow plans; can itself be a waterfall but seen as flat from upstream
+    else
+      curvedOffset(flowPlan) match {
+        case Some(offset) if z >= offset => true
+        case _ =>
+          XLine.exists(x =>
+            flowPlan(x)(z).isDefined != flowPlan(x)(z - 1).isDefined ||
+              (z < ZPlanMax && flowPlan(x)(z).isDefined != flowPlan(x)(
+                z + 1
+              ).isDefined)
+          )
+      }
+  }
+
+  private def maxSurfaceLevelAt(z: Int, flatLines: IndexedSeq[Boolean]): Int = { // takes flat zones into account
+    val upstreamSurfaceLevels =
+      if (isSource && z > ZModelPlanMax) Nil
+      else upstreamLevels(xMirrored(flowPlan, XPlanMax), z, _.maxSurfaceLevels)
+    val flatSurfaceLevels =
+      (z to 0 by -1).takeWhile(flatLines(_)).map(maxSurfaceLevels)
+    (upstreamSurfaceLevels ++ flatSurfaceLevels :+ maxSurfaceLevels(z)).min
+  }
+
+  def adjustUpstream()(implicit bac: IBlockAccess) {
+    for (z <- ZLine) {
+      val yMaxTunnelRoof =
+        min(maxSurfaceLevels(z) + MinTunnelHeight + 1, cs.yLocal(bac.yMax))
+      surfaceLevelsUnits(z) = downstreamLevel(z, _.surfaceLevelsUnits)
+        .getOrElse(surfaceLevelUnits(river.seaLevel))
+      roofLevels(z) = downstreamLevel(z, _.roofLevels).getOrElse(yMaxTunnelRoof)
+      val tunnel = blockAt(-ShorePadding, roofLevels(z), z).isSolid || blockAt(
+        XPlanMax + ShorePadding,
+        roofLevels(z),
+        z
+      ).isSolid
+      if (!tunnel && !isSource)
+        XLine.foreach(x => valleys += ((x, z)))
+      if (!isFlatAt(z)) {
+        if (roofLevels(z) < yMaxTunnelRoof)
+          roofLevels(z) += 1
+        val ySurface = surfaceLevel(surfaceLevelsUnits(z))
+        val yMaxSurface = max(
+          ySurface,
+          roofLevels(z) - MinTunnelHeight - 1 - (if (isSource)
+                                                   MinSourceBackWallHeight
+                                                 else 0)
+        )
+        if (ySurface == yMaxSurface) {
+          if (surfaceLevelsUnits(z) < surfaceLevelUnits(ySurface))
+            surfaceLevelsUnits(z) += 1
+        } else
+          surfaceLevelsUnits(z) = surfaceLevelUnits(
+            if (widthStretch >= 2) ySurface + 1 else yMaxSurface
+          ) - 6
+      }
+    }
+    upstreamComponents.foreach(_.adjustUpstream())
+  }
+
+  // -----------------------------------------------------------------------------------------------------------------
+  // Building
+  // -----------------------------------------------------------------------------------------------------------------
+  def carveValleyAt(wx: Int, yGround: Int, wz: Int)(implicit
+      blockSetter: BlockSetter,
+      random: Random
+  ) {
+    val (x, z) = cs.xzLocal(wx, wz)
+    val flow = flowDefined(x, z)
+    val dfs = shoreDistances(x, z)
+    if (valleys.nonEmpty) {
+      val valley = valleys.contains(x, z)
+      val valleyFlow = valley && flow
+      val valleyDfs =
+        if (valley) dfs
+        else {
+          val valleyFlows = valleys.filter(xz => flowDefined(xz.x, xz.z))
+          if (valleyFlows.isEmpty) dfs
+          else round(valleyFlows.map(v => distance(x, z, v.x, v.z)).min).toInt
         }
-        stretched
+      if ((valleyFlow || valleyDfs <= ShorePadding) && !isSource)
+        carveValley(
+          x,
+          surfaceLevelAt(x, z, valleyDfs),
+          z,
+          valleyDfs,
+          valleyFlow,
+          yGround
+        ) // Surface level adjusted for distance from shore
     }
+    lazy val xyzSurface = (x, surfaceLevelAt(x, z, dfs), z)
+    if (tfcLoaded && (flow || dfs <= MidPadding) && !valleys.contains(x, z))
+      carveTunnel(xyzSurface, dfs, flow)
+    lazy val surfaceBlock = blockAt(xyzSurface)
+    if (
+      flow || (this.isInstanceOf[RiverMouthComponent] && isWithin(
+        flowPlan,
+        x,
+        z
+      ) && (surfaceBlock.isLiquid || surfaceBlock.getMaterial == Material.ice))
+    )
+      fillRiver(xyzSurface, dfs)
+  }
 
-    protected def stretchEastWest(model: FlowPlan): FlowPlan = {
-        val stretched: FlowPlan = fill(xFlowPlanLength(flowPlan), zFlowPlanLength(model))(None)
-        val xModelStretchStart = ModelPlanRiverStartX + ModelPlanRiverWidth
-        val stretchRatio: Float = (xFlowPlanLength(model) - xModelStretchStart + MaxStretch).toFloat / (xFlowPlanLength(model) - xModelStretchStart).toFloat
-        for(x <- 0 to xFlowPlanMax(stretched);
-            z <- 0 to zFlowPlanMax(stretched)) {
-            if(x - MaxStretch < xModelStretchStart) {
-                if(x - MaxStretch >= 0)
-                    stretched(x)(z) = model(x - MaxStretch)(z)
-            } else
-                stretched(x)(z) = model(clampedIndex(model, round(x.toFloat / stretchRatio)))(z)
-        }
-        for(x <- 0 to xFlowPlanMax(stretched);
-            z <- 0 to zFlowPlanMax(stretched)) {
-            if(stretched(x)(z).isDefined && x > 0 && x < xFlowPlanMax(stretched) && z > 0 && z < zFlowPlanMax(stretched))
-                if(stretched(x-1)(z-1).isEmpty && stretched(x+1)(z+1).isEmpty)
-                    stretched(x)(z) = None // Repair ugly 2x2 square corners
-        }
-        stretched
+  private def carveValley(
+      x: Int,
+      ySurface: Int,
+      z: Int,
+      dfs: Int,
+      flow: Boolean,
+      yGround: Int
+  )(implicit blockSetter: BlockSetter) {
+    val yFloor =
+      if (flow) ySurface
+      else adjustedFloorLevel(x, valleyFloor(ySurface, dfs, flow, yGround), z)
+    for (y <- yGround until yFloor by -1)
+      clearBlockAt(x, y, z)
+    if (tfcLoaded && yFloor < yGround) {
+      val xyzFloor = (x, yFloor, z)
+      val exposedBlock = blockAndDataAt(xyzFloor)
+      if (exposedBlock.block.getMaterial.blocksMovement) {
+        val wxz = cs.xzWorld(x, z)
+        val surfaceBlock =
+          tfcSurfaceBlockAt(wxz, blockSetter.worldProvider.worldObj)
+        if (exposedBlock != surfaceBlock)
+          setBlockAndDataAt(xyzFloor, surfaceBlock, notifyNeighbors = false)
+      }
     }
+  }
 
-    protected def overlay(source: FlowPlan, target: FlowPlan) {
-        val xOffset = (xFlowPlanLength(target) - xFlowPlanLength(source)) / 2
-        for(x <- 0 to xFlowPlanMax(source);
-            z <- 0 to zFlowPlanMax(source)) {
-            target(x + xOffset)(z) = combine(target(x + xOffset)(z), mirrored(source(xMirrored(source, x))(z)))
-        }
+  private def valleyFloor(ySurface: Int, dfs: Int, flow: Boolean, yGround: Int)(
+      implicit bac: IBlockAccess
+  ) = {
+    val groundHeight = yGround - ySurface
+    if (groundHeight <= 0)
+      ySurface
+    else {
+      val midHeight = (groundHeight + 1) / 2
+      val floorHeight =
+        if (dfs < MidPadding) min(dfs, midHeight)
+        else if (dfs == MidPadding) max(dfs, midHeight)
+        else max(max(dfs, midHeight), groundHeight - (ShorePadding - dfs) - 1)
+      ySurface + floorHeight
     }
+  }
 
-    protected def widen(plan: FlowPlan, amount: Int, eastWest: Boolean = true, northSouth: Boolean = true) {
-        for(_ <- 1 to amount) widen(plan, eastWest, northSouth)
-    }
-
-    protected def widen(plan: FlowPlan, eastWest: Boolean, northSouth: Boolean) { // Stretch a flow plan on a component
-        val justAdded = fill(xFlowPlanLength(plan), zFlowPlanLength(plan))(false)
-        for(x <- 0 to xFlowPlanMax(plan);
-            z <- 0 to zFlowPlanMax(plan)) {
-            if(plan(x)(z).isEmpty) {
-                val neighborFlows = neighbors(x, z).flatMap { case (nx, nz) =>
-                    if(!isWithin(plan, nx, nz) || justAdded(nx)(nz) || (!eastWest && nx != x) || (!northSouth && nz != z)) None
-                    else plan(nx)(nz)
-                }
-                if(neighborFlows.nonEmpty) {
-                    val newFlow = interpolate(neighborFlows: _*)
-                    plan(x)(z) = Some(normalize(newFlow._1, newFlow._2))
-                    justAdded(x)(z) = true
-                }
-            }
-        }
-    }
-
-    protected def commit(implicit bac: IBlockAccess, random: Random) {
-        val flatLines = ZLine.map(isFlatAt)
-        for(z <- ZLine.reverse) {
-            maxSurfaceLevels(z) = maxSurfaceLevelAt(z, flatLines)
-            for(x <- XLine) {
-                if(flowPlan(x)(z).isEmpty)
-                    if(allNeighbors(x, z).exists { case (nx, nz) => flowDefined(nx, nz) }) shores += cs.xzWorld(x, z)
-            }
-        }
-        river += this
-    }
-
-    protected def isFlatAt(z: Int) = { // Rivers must be flat wherever they curve or flows don't all have a downstream match
-        if(isSource) false
-        else if(z == 0) true // By design of the flow plans; can itself be a waterfall but seen as flat from upstream
-        else curvedOffset(flowPlan) match {
-            case Some(offset) if z >= offset => true
-            case _ => XLine.exists(x => flowPlan(x)(z).isDefined != flowPlan(x)(z - 1).isDefined ||
-                    (z < ZPlanMax && flowPlan(x)(z).isDefined != flowPlan(x)(z + 1).isDefined))
-        }
-    }
-
-    private def maxSurfaceLevelAt(z: Int, flatLines: IndexedSeq[Boolean]): Int = { // takes flat zones into account
-        val upstreamSurfaceLevels =
-            if(isSource && z > ZModelPlanMax) Nil
-            else upstreamLevels(xMirrored(flowPlan, XPlanMax), z, _.maxSurfaceLevels)
-        val flatSurfaceLevels = (z to 0 by -1).takeWhile(flatLines(_)).map(maxSurfaceLevels)
-        (upstreamSurfaceLevels ++ flatSurfaceLevels :+ maxSurfaceLevels(z)).min
-    }
-
-    def adjustUpstream()(implicit bac: IBlockAccess) {
-        for(z <- ZLine) {
-            val yMaxTunnelRoof = min(maxSurfaceLevels(z) + MinTunnelHeight + 1, cs.yLocal(bac.yMax))
-            surfaceLevelsUnits(z) = downstreamLevel(z, _.surfaceLevelsUnits).getOrElse(surfaceLevelUnits(river.seaLevel))
-            roofLevels(z) = downstreamLevel(z, _.roofLevels).getOrElse(yMaxTunnelRoof)
-            val tunnel = blockAt(-ShorePadding, roofLevels(z), z).isSolid || blockAt(XPlanMax + ShorePadding, roofLevels(z), z).isSolid
-            if(!tunnel && !isSource)
-                XLine.foreach(x => valleys += ((x, z)))
-            if(!isFlatAt(z)) {
-                if(roofLevels(z) < yMaxTunnelRoof)
-                    roofLevels(z) += 1
-                val ySurface = surfaceLevel(surfaceLevelsUnits(z))
-                val yMaxSurface = max(ySurface, roofLevels(z) - MinTunnelHeight - 1 - (if(isSource) MinSourceBackWallHeight else 0))
-                if(ySurface == yMaxSurface) {
-                    if(surfaceLevelsUnits(z) < surfaceLevelUnits(ySurface))
-                      surfaceLevelsUnits(z) += 1
-                } else
-                  surfaceLevelsUnits(z) = surfaceLevelUnits(if(widthStretch >= 2) ySurface + 1 else yMaxSurface) - 6
-            }
-        }
-        upstreamComponents.foreach(_.adjustUpstream())
-    }
-
-    //-----------------------------------------------------------------------------------------------------------------
-    // Building
-    //-----------------------------------------------------------------------------------------------------------------
-    def carveValleyAt(wx: Int, yGround: Int, wz: Int)(implicit blockSetter: BlockSetter, random: Random) {
-        val (x, z) = cs.xzLocal(wx, wz)
+  protected def build(implicit blockSetter: BlockSetter, random: Random) {
+    for ((x, z) <- EachLocalPosWithPadding) {
+      val wxz = cs.xzWorld(x, z)
+      if (blockSetter.validAt(wxz)) {
         val flow = flowDefined(x, z)
         val dfs = shoreDistances(x, z)
-        if(valleys.nonEmpty) {
-            val valley = valleys.contains(x, z)
-            val valleyFlow = valley && flow
-            val valleyDfs = if(valley) dfs else {
-                val valleyFlows = valleys.filter(xz => flowDefined(xz.x, xz.z))
-                if(valleyFlows.isEmpty) dfs else round(valleyFlows.map(v => distance(x, z, v.x, v.z)).min).toInt
-            }
-            if((valleyFlow || valleyDfs <= ShorePadding) && !isSource)
-                carveValley(x, surfaceLevelAt(x, z, valleyDfs), z, valleyDfs, valleyFlow, yGround)  // Surface level adjusted for distance from shore
-        }
-        lazy val xyzSurface = (x, surfaceLevelAt(x, z, dfs), z)
-        if(tfcLoaded && (flow || dfs <= MidPadding) && !valleys.contains(x, z))
+        if (flow || dfs <= MidPadding) {
+          val xyzSurface = (x, surfaceLevelAt(x, z, dfs), z)
+          if (isSource && !flow && dfs == 0) {
+            val rockBlock =
+              rockBlockFor(xyzSurface.x, xyzSurface.y, xyzSurface.z)
+            foreachDownFrom(
+              (x, clamped(roofLevels, z) - 1, z),
+              blockAt(_).getMaterial != Material.rock,
+              xyz =>
+                if (blockAt(xyz).isGround)
+                  setBlockAndDataAt(xyz, rockBlock, notifyNeighbors = false)
+            )
+          } else if (!tfcLoaded && !valleys.contains(x, z))
             carveTunnel(xyzSurface, dfs, flow)
-        lazy val surfaceBlock = blockAt(xyzSurface)
-        if(flow || (this.isInstanceOf[RiverMouthComponent] && isWithin(flowPlan, x, z) && (surfaceBlock.isLiquid || surfaceBlock.getMaterial == Material.ice)))
-            fillRiver(xyzSurface, dfs)
-    }
-
-    private def carveValley(x: Int, ySurface: Int, z: Int, dfs: Int, flow: Boolean, yGround: Int)(implicit blockSetter: BlockSetter) {
-        val yFloor = if(flow) ySurface else adjustedFloorLevel(x, valleyFloor(ySurface, dfs, flow, yGround), z)
-        for(y <- yGround until yFloor by -1)
-            clearBlockAt(x, y, z)
-        if(tfcLoaded && yFloor < yGround) {
-            val xyzFloor = (x, yFloor, z)
-            val exposedBlock = blockAndDataAt(xyzFloor)
-            if(exposedBlock.block.getMaterial.blocksMovement) {
-                val wxz = cs.xzWorld(x, z)
-                val surfaceBlock = tfcSurfaceBlockAt(wxz, blockSetter.worldProvider.worldObj)
-                if(exposedBlock != surfaceBlock)
-                    setBlockAndDataAt(xyzFloor, surfaceBlock, notifyNeighbors = false)
+          if (flow) {
+            val yDownstreamSurface = surfaceLevel(
+              downstreamLevel(z, _.surfaceLevelsUnits)
+                .getOrElse(river.seaLevelUnits)
+            )
+            val blockRiver = riverBlock(flowPlan(x)(z).get)
+            if (blockAt(xyzSurface) == liquid.flowingBlock) {
+              setBlockAt(
+                xyzSurface,
+                liquid.flowingBlock,
+                7,
+                notifyNeighbors = false
+              ) // Try to fix waterfalls
+              if (!isSource)
+                deleteBlockAt(
+                  xyzSurface.above,
+                  notifyNeighbors = false
+                ) // Try to fix the occasional stone "bridge"
             }
-        }
-    }
-
-    private def valleyFloor(ySurface: Int, dfs: Int, flow: Boolean, yGround: Int)(implicit bac: IBlockAccess) = {
-        val groundHeight = yGround - ySurface
-        if(groundHeight <= 0)
-            ySurface
-        else {
-            val midHeight = (groundHeight + 1) / 2
-            val floorHeight =
-                if(dfs < MidPadding) min(dfs, midHeight)
-                else if(dfs == MidPadding) max(dfs, midHeight)
-                else max(max(dfs, midHeight), groundHeight - (ShorePadding - dfs) - 1)
-            ySurface + floorHeight
-        }
-    }
-
-    protected def build(implicit blockSetter: BlockSetter, random: Random) {
-        for((x, z) <- EachLocalPosWithPadding) {
-            val wxz = cs.xzWorld(x, z)
-            if(blockSetter.validAt(wxz)) {
-                val flow = flowDefined(x, z)
-                val dfs = shoreDistances(x, z)
-                if(flow || dfs <= MidPadding) {
-                    val xyzSurface = (x, surfaceLevelAt(x, z, dfs), z)
-                    if(isSource && !flow && dfs == 0) {
-                        val rockBlock = rockBlockFor(xyzSurface.x, xyzSurface.y, xyzSurface.z)
-                        foreachDownFrom((x, clamped(roofLevels, z) - 1, z), blockAt(_).getMaterial != Material.rock, xyz =>
-                            if(blockAt(xyz).isGround) setBlockAndDataAt(xyz, rockBlock, notifyNeighbors = false))
-                    } else if(!tfcLoaded && !valleys.contains(x, z))
-                        carveTunnel(xyzSurface, dfs, flow)
-                    if(flow) {
-                        val yDownstreamSurface = surfaceLevel(downstreamLevel(z, _.surfaceLevelsUnits).getOrElse(river.seaLevelUnits))
-                        val blockRiver = riverBlock(flowPlan(x)(z).get)
-                        if(blockAt(xyzSurface) == liquid.flowingBlock) {
-                            setBlockAt(xyzSurface, liquid.flowingBlock, 7, notifyNeighbors = false) // Try to fix waterfalls
-                            if(!isSource) deleteBlockAt(xyzSurface.above, notifyNeighbors = false) // Try to fix the occasional stone "bridge"
-                        }
-                        setRiverBlockAt((x, yDownstreamSurface, z), blockRiver, flowDecayAt(z))
-                        val yBottom = yDownFrom(yDownstreamSurface - 1).find(blockAt(x, _, z).isSolid).get
-                        for(y <- yDownstreamSurface - 1 until yBottom by -1)
-                            setRiverBlockAt((x, y, z), blockRiver)
-                        if(blockSetter.worldProvider.isSurfaceWorld) { // Set riverbed
-                            val bottomBlock =
-                                if(tfcLoaded) tfcSurfaceBlockAt(wxz, blockSetter.worldProvider.worldObj, sedimentOnly = true)
-                                else if(isBiomeOfType(baseBiomeAt(x, yBottom, z), COLD)) gravelBlockFor(x, yBottom, z)
-                                else sandBlockFor(x, yBottom, z)
-                            foreachDownFrom((x, yBottom, z), blockAt(_).isSoil, setBlockAndDataAt(_, bottomBlock, notifyNeighbors = false))
-                        }
-                    }
-                }
+            setRiverBlockAt(
+              (x, yDownstreamSurface, z),
+              blockRiver,
+              flowDecayAt(z)
+            )
+            val yBottom = yDownFrom(yDownstreamSurface - 1)
+              .find(blockAt(x, _, z).isSolid)
+              .get
+            for (y <- yDownstreamSurface - 1 until yBottom by -1)
+              setRiverBlockAt((x, y, z), blockRiver)
+            if (blockSetter.worldProvider.isSurfaceWorld) { // Set riverbed
+              val bottomBlock =
+                if (tfcLoaded)
+                  tfcSurfaceBlockAt(
+                    wxz,
+                    blockSetter.worldProvider.worldObj,
+                    sedimentOnly = true
+                  )
+                else if (isBiomeOfType(baseBiomeAt(x, yBottom, z), COLD))
+                  gravelBlockFor(x, yBottom, z)
+                else sandBlockFor(x, yBottom, z)
+              foreachDownFrom(
+                (x, yBottom, z),
+                blockAt(_).isSoil,
+                setBlockAndDataAt(_, bottomBlock, notifyNeighbors = false)
+              )
             }
+          }
         }
+      }
     }
+  }
 
-    private def carveTunnel(xyzSurface: XYZ, dfs: Int, flow: Boolean)(implicit blockSetter: BlockSetter) {
-        if(flow || dfs < MidPadding) {
-            val (x, ySurface, z) = xyzSurface
-            val yFloor = if(flow) ySurface else adjustedFloorLevel(x, ySurface + dfs, z)
-            val yRoof = if(!isSource) clamped(roofLevels, z) else ySurface + max(0, MinTunnelHeight - z * 3 / 4 - 1)
-            val yBaseCeiling = yRoof - (yFloor - ySurface) - (if(flow) max(0, BaseTunnelCeilingThickness - dfs) else BaseTunnelCeilingThickness)
-            val stalactite = FloorAndCeilingFudge.nextBoolean && blockAt(x, yBaseCeiling, z).isSolid
-            val yCeiling = if(stalactite) yBaseCeiling - 1 else yBaseCeiling
-            if(yCeiling > yFloor + 1 || (isSource && yCeiling > yFloor)) {
-                val xyzCeiling = (x, yCeiling, z)
-                val ceiling = blockAt(xyzCeiling)
-                if(ceiling.isGranular) {
-                    val rock = rockBlockFor(x, yCeiling, z)
-                    setBlockAndDataAt(xyzCeiling, rock, notifyNeighbors = false) // Harden ceiling
-                    if(stalactite) setBlockAndDataAt(xyzCeiling.above, rock, notifyNeighbors = false)
-                }
-                for(y <- yCeiling - 1 until yFloor by -1)
-                    clearBlockAt(x, y, z)
-            }
+  private def carveTunnel(xyzSurface: XYZ, dfs: Int, flow: Boolean)(implicit
+      blockSetter: BlockSetter
+  ) {
+    if (flow || dfs < MidPadding) {
+      val (x, ySurface, z) = xyzSurface
+      val yFloor =
+        if (flow) ySurface else adjustedFloorLevel(x, ySurface + dfs, z)
+      val yRoof =
+        if (!isSource) clamped(roofLevels, z)
+        else ySurface + max(0, MinTunnelHeight - z * 3 / 4 - 1)
+      val yBaseCeiling =
+        yRoof - (yFloor - ySurface) - (if (flow)
+                                         max(
+                                           0,
+                                           BaseTunnelCeilingThickness - dfs
+                                         )
+                                       else BaseTunnelCeilingThickness)
+      val stalactite =
+        FloorAndCeilingFudge.nextBoolean && blockAt(x, yBaseCeiling, z).isSolid
+      val yCeiling = if (stalactite) yBaseCeiling - 1 else yBaseCeiling
+      if (yCeiling > yFloor + 1 || (isSource && yCeiling > yFloor)) {
+        val xyzCeiling = (x, yCeiling, z)
+        val ceiling = blockAt(xyzCeiling)
+        if (ceiling.isGranular) {
+          val rock = rockBlockFor(x, yCeiling, z)
+          setBlockAndDataAt(
+            xyzCeiling,
+            rock,
+            notifyNeighbors = false
+          ) // Harden ceiling
+          if (stalactite)
+            setBlockAndDataAt(xyzCeiling.above, rock, notifyNeighbors = false)
         }
+        for (y <- yCeiling - 1 until yFloor by -1)
+          clearBlockAt(x, y, z)
+      }
+    }
+  }
+
+  private def fillRiver(xyzSurface: XYZ, dfs: Int)(implicit
+      blockSetter: BlockSetter
+  ) {
+    val (x, ySurface, z) = xyzSurface
+    val yDownstreamSurface = surfaceLevel(
+      downstreamLevel(z, _.surfaceLevelsUnits).getOrElse(river.seaLevelUnits)
+    )
+    val yBottom = yDownstreamSurface - clamped(1, dfs, MaxDepth)
+    var liquidBlock: Block = liquid.stillBlock
+    for (y <- yDownstreamSurface until yBottom by -1) {
+      val block = blockAt(x, y, z)
+      if (block.getMaterial != Material.ice) {
+        if (block.isLiquid) liquidBlock = block
+        else
+          setBlockAt(
+            (x, y, z),
+            liquidBlock,
+            notifyNeighbors = false
+          ) // Vanilla water to block cave/ravine gen
+      }
+    }
+    for (y <- yDownstreamSurface + 1 to ySurface)
+      setBlockAt(
+        (x, y, z),
+        liquid.flowingBlock,
+        8,
+        notifyNeighbors = false
+      ) // Waterfall
+  }
+
+  private def clearBlockAt(xyz: XYZ)(implicit blockSetter: BlockSetter) {
+    val block = blockAt(xyz)
+    if (block != bedrock && !block.isInstanceOf[BlockRiver])
+      deleteBlockAt(xyz, notifyNeighbors = false)
+  }
+
+  private def setRiverBlockAt(
+      xyz: XYZ,
+      newBlock: BlockRiver,
+      flowDecay: Int = 0
+  )(implicit blockSetter: BlockSetter) {
+    blockAt(xyz) match {
+      case block: FixedFlowBlock =>
+        val (dx, dz, decay) = interpolate(
+          (block.dx, block.dz, dataAt(xyz)),
+          (newBlock.dx, newBlock.dz, flowDecay)
+        )
+        setBlockAndDataAt(
+          xyz,
+          (FixedFlowBlock(liquid, dx, dz), decay),
+          notifyNeighbors = false
+        )
+      case _ =>
+        setBlockAndDataAt(xyz, (newBlock, flowDecay), notifyNeighbors = false)
+    }
+  }
+
+  private def riverBlock(flow: XZ): BlockRiver = {
+    val (dx, dz) = effectiveFlow(flow.x, flow.z)
+    FixedFlowBlock(liquid, dx, dz).asInstanceOf[BlockRiver]
+  }
+
+  private def effectiveFlow(dx: Int, dz: Int) =
+    upstreamOrientation match { // account for component rotation
+      case South => (dx, dz)
+      case West  => (-dz, dx)
+      case North => (dx, -dz)
+      case East  => (dz, dx)
     }
 
-    private def fillRiver(xyzSurface: XYZ, dfs: Int)(implicit blockSetter: BlockSetter) {
-        val (x, ySurface, z) = xyzSurface
-        val yDownstreamSurface = surfaceLevel(downstreamLevel(z, _.surfaceLevelsUnits).getOrElse(river.seaLevelUnits))
-        val yBottom = yDownstreamSurface - clamped(1, dfs, MaxDepth)
-        var liquidBlock: Block = liquid.stillBlock
-        for(y <- yDownstreamSurface until yBottom by -1) {
-            val block = blockAt(x, y, z)
-            if(block.getMaterial != Material.ice) {
-                if(block.isLiquid) liquidBlock = block
-                else setBlockAt((x, y, z), liquidBlock, notifyNeighbors = false) // Vanilla water to block cave/ravine gen
-            }
-        }
-        for(y <- yDownstreamSurface + 1 to ySurface)
-            setBlockAt((x, y, z), liquid.flowingBlock, 8, notifyNeighbors = false) // Waterfall
+  def isFlowOrShoreAt(wxz: XZ) = flowDefined(
+    cs.xLocal(wxz.x, wxz.z),
+    cs.zLocal(wxz.x, wxz.z)
+  ) || shores.contains(wxz)
+
+  private def adjustedFloorLevel(x: Int, yFloor: Int, z: Int) =
+    intersectingFlowOrShoreSurfaceLevelAt(cs.xzWorld(x, z)) match {
+      case Some(minLevel) => max(minLevel, yFloor)
+      case None           => yFloor
     }
 
-    private def clearBlockAt(xyz: XYZ)(implicit blockSetter: BlockSetter) {
-        val block = blockAt(xyz)
-        if(block != bedrock && !block.isInstanceOf[BlockRiver])
-            deleteBlockAt(xyz, notifyNeighbors = false)
+  private def intersectingFlowOrShoreSurfaceLevelAt(wxz: XZ): Option[Int] =
+    intersectingFlowOrShoreComponentAt(wxz).map { c =>
+      val xz = c.cs.xzLocal(wxz)
+      surfaceLevel(c.surfaceLevelsUnits(xz.z))
     }
 
-    private def setRiverBlockAt(xyz: XYZ, newBlock: BlockRiver, flowDecay: Int = 0)(implicit blockSetter: BlockSetter) {
-        blockAt(xyz) match {
-            case block: FixedFlowBlock =>
-                val (dx, dz, decay) = interpolate((block.dx, block.dz, dataAt(xyz)), (newBlock.dx, newBlock.dz, flowDecay))
-                setBlockAndDataAt(xyz, (FixedFlowBlock(liquid, dx, dz), decay), notifyNeighbors = false)
-            case _ =>
-                setBlockAndDataAt(xyz, (newBlock, flowDecay), notifyNeighbors = false)
-        }
-    }
+  private def intersectingFlowOrShoreComponentAt(
+      wxz: XZ
+  ): Option[RiverComponent] =
+    if (shores.contains(wxz)) None
+    else
+      river
+        .intersectingComponentsAt(wxz, _.boundingBox)
+        .find(c => c != this && c.isFlowOrShoreAt(wxz))
 
-    private def riverBlock(flow: XZ): BlockRiver = {
-        val (dx, dz) = effectiveFlow(flow.x, flow.z)
-        FixedFlowBlock(liquid, dx, dz).asInstanceOf[BlockRiver]
-    }
+  private def distanceFromShore(xz: XZ): Int = {
+    val wx = cs.xWorld(xz.x, xz.z)
+    val wz = cs.zWorld(xz.x, xz.z)
+    val base =
+      if (shores.contains(wx, wz)) 0
+      else {
+        val preRoundBase = shores.map(s => distance(wx, wz, s.x, s.z)).min
+        (if (FloorAndCeilingFudge.nextBoolean()) floor(preRoundBase)
+         else ceil(preRoundBase)).toInt
+      }
+    if (flowDefined(xz.x, xz.z) || xz.z >= ZPlanMax / 2) base else base + 1
+  }
 
-    private def effectiveFlow(dx: Int, dz: Int) = upstreamOrientation match { // account for component rotation
-        case South => ( dx,  dz)
-        case West  => (-dz,  dx)
-        case North => ( dx, -dz)
-        case East  => ( dz,  dx)
-    }
-
-    def isFlowOrShoreAt(wxz: XZ) = flowDefined(cs.xLocal(wxz.x, wxz.z), cs.zLocal(wxz.x, wxz.z)) || shores.contains(wxz)
-
-    private def adjustedFloorLevel(x: Int, yFloor: Int, z: Int) = intersectingFlowOrShoreSurfaceLevelAt(cs.xzWorld(x, z)) match {
-        case Some(minLevel) => max(minLevel, yFloor)
-        case None => yFloor
-    }
-
-    private def intersectingFlowOrShoreSurfaceLevelAt(wxz: XZ): Option[Int] =
-        intersectingFlowOrShoreComponentAt(wxz).map{c =>
-            val xz = c.cs.xzLocal(wxz)
-            surfaceLevel(c.surfaceLevelsUnits(xz.z))
-        }
-
-    private def intersectingFlowOrShoreComponentAt(wxz: XZ): Option[RiverComponent] =
-        if(shores.contains(wxz)) None
-        else river.intersectingComponentsAt(wxz, _.boundingBox).find(c => c != this && c.isFlowOrShoreAt(wxz))
-
-    private def distanceFromShore(xz: XZ): Int = {
-        val wx = cs.xWorld(xz.x, xz.z)
-        val wz = cs.zWorld(xz.x, xz.z)
-        val base = if(shores.contains(wx, wz)) 0 else {
-          val preRoundBase = shores.map(s => distance(wx, wz, s.x, s.z)).min
-          (if(FloorAndCeilingFudge.nextBoolean()) floor(preRoundBase) else ceil(preRoundBase)).toInt
-        }
-        if(flowDefined(xz.x, xz.z) || xz.z >= ZPlanMax/2) base else base + 1
-    }
-
-    private def surfaceLevelAt(x: Int, z: Int, dfs: Int) = {
-        surfaceLevel(if(flowDefined(x, z)) surfaceLevelsUnits(z) else {
-            val upstreamSurfaceLevelUnits = upstreamLevels(x, z, _.surfaceLevelsUnits, dfs)
-            if(upstreamSurfaceLevelUnits.nonEmpty) upstreamSurfaceLevelUnits.max else clamped(surfaceLevelsUnits, z)
-        }) // Forms v-shaped ridge around waterfalls
-    }
+  private def surfaceLevelAt(x: Int, z: Int, dfs: Int) = {
+    surfaceLevel(
+      if (flowDefined(x, z)) surfaceLevelsUnits(z)
+      else {
+        val upstreamSurfaceLevelUnits =
+          upstreamLevels(x, z, _.surfaceLevelsUnits, dfs)
+        if (upstreamSurfaceLevelUnits.nonEmpty) upstreamSurfaceLevelUnits.max
+        else clamped(surfaceLevelsUnits, z)
+      }
+    ) // Forms v-shaped ridge around waterfalls
+  }
 }
 
 object RiverComponent {
 
-    val XModelPlanSize = 8
-    val ZModelPlanSize = 8
-    val XModelPlanMax = XModelPlanSize - 1
-    val ZModelPlanMax = ZModelPlanSize - 1
-    val ModelPlanRiverStartX = 2
-    val ModelPlanRiverWidth  = 2
-    val MaxStretch = 5
-    val ShorePadding = 6
-    val MidPadding = (ShorePadding + 1) / 2
+  val XModelPlanSize = 8
+  val ZModelPlanSize = 8
+  val XModelPlanMax = XModelPlanSize - 1
+  val ZModelPlanMax = ZModelPlanSize - 1
+  val ModelPlanRiverStartX = 2
+  val ModelPlanRiverWidth = 2
+  val MaxStretch = 5
+  val ShorePadding = 6
+  val MidPadding = (ShorePadding + 1) / 2
 
-    val ZPlanSize = ZModelPlanSize + MaxStretch * 2
-    val XPlanSize = XModelPlanSize + MaxStretch * 2
-    val XPlanMax = XPlanSize - 1
-    val ZPlanMax = ZPlanSize - 1
-    val XLine = 0 to XPlanMax
-    val ZLine = 0 to ZPlanMax
+  val ZPlanSize = ZModelPlanSize + MaxStretch * 2
+  val XPlanSize = XModelPlanSize + MaxStretch * 2
+  val XPlanMax = XPlanSize - 1
+  val ZPlanMax = ZPlanSize - 1
+  val XLine = 0 to XPlanMax
+  val ZLine = 0 to ZPlanMax
 
-    val MaxWidth = ModelPlanRiverWidth + MaxStretch * 2
-    val MaxDepth = MaxWidth / 2
+  val MaxWidth = ModelPlanRiverWidth + MaxStretch * 2
+  val MaxDepth = MaxWidth / 2
 
-    val EachLocalPos: Seq[XZ] =
-        for(x <- XLine; z <- ZLine) yield (x, z)
+  val EachLocalPos: Seq[XZ] =
+    for (x <- XLine; z <- ZLine) yield (x, z)
 
-    val EachLocalPosWithPadding: Seq[XZ] =
-        for(x <- -MidPadding to XPlanMax + MidPadding;
-            z <- -MidPadding to ZPlanMax + MidPadding) yield (x, z)
+  val EachLocalPosWithPadding: Seq[XZ] =
+    for (
+      x <- -MidPadding to XPlanMax + MidPadding;
+      z <- -MidPadding to ZPlanMax + MidPadding
+    ) yield (x, z)
 
-    val MinTunnelHeight = 8
-    val BaseTunnelCeilingThickness = 2
-    val FloorAndCeilingFudge = new Random
+  val MinTunnelHeight = 8
+  val BaseTunnelCeilingThickness = 2
+  val FloorAndCeilingFudge = new Random
 
-    val MinElevationForRatcheting = 6
+  val MinElevationForRatcheting = 6
 
-    val MinSourceBackWallHeight = 2
+  val MinSourceBackWallHeight = 2
 
-    def surfaceLevelUnits(level: Int) = level*7 + 6
-    def surfaceLevel(units: Int) = units / 7
-    def flowDecay(units: Int) = 6 - (units % 7) // Maximum 6, so we don't "starve" waterfalls
+  def surfaceLevelUnits(level: Int) = level * 7 + 6
+  def surfaceLevel(units: Int) = units / 7
+  def flowDecay(units: Int) =
+    6 - (units % 7) // Maximum 6, so we don't "starve" waterfalls
 
-    type Flow = Option[XZ]
-    type FlowPlan = Array[Array[Flow]]
+  type Flow = Option[XZ]
+  type FlowPlan = Array[Array[Flow]]
 
-    def xFlowPlanLength(p: FlowPlan): Int = p.length
-    def zFlowPlanLength(p: FlowPlan): Int = p(0).length
+  def xFlowPlanLength(p: FlowPlan): Int = p.length
+  def zFlowPlanLength(p: FlowPlan): Int = p(0).length
 
-    def xFlowPlanMax(p: FlowPlan): Int = xFlowPlanLength(p) - 1
-    def zFlowPlanMax(p: FlowPlan): Int = zFlowPlanLength(p) - 1
+  def xFlowPlanMax(p: FlowPlan): Int = xFlowPlanLength(p) - 1
+  def zFlowPlanMax(p: FlowPlan): Int = zFlowPlanLength(p) - 1
 
-    def isWithin(p: FlowPlan, x: Int, z: Int) = x >= 0 && z >= 0 && x <= xFlowPlanMax(p) && z <= zFlowPlanMax(p)
+  def isWithin(p: FlowPlan, x: Int, z: Int) =
+    x >= 0 && z >= 0 && x <= xFlowPlanMax(p) && z <= zFlowPlanMax(p)
 
-    def modelPlan(flows: Flow*): FlowPlan = {
-        assert(flows.length == XModelPlanSize * ZModelPlanSize)
-        val plan = ofDim[Flow](XModelPlanSize, ZModelPlanSize)
-        for(i <- 0 until flows.length) plan(i % XModelPlanSize)(i / XModelPlanSize) = flows(i)
-        plan
-    }
+  def modelPlan(flows: Flow*): FlowPlan = {
+    assert(flows.length == XModelPlanSize * ZModelPlanSize)
+    val plan = ofDim[Flow](XModelPlanSize, ZModelPlanSize)
+    for (i <- 0 until flows.length)
+      plan(i % XModelPlanSize)(i / XModelPlanSize) = flows(i)
+    plan
+  }
 
-    val ___ = None
-    val OOO = Some(( 0,  0))
-    val SSS = Some(( 0,  2))
-    val SSW = Some((-1,  2))
-    val S_W = Some((-2,  2))
-    val WSW = Some((-2,  1))
-    val WWW = Some((-2,  0))
-    val WNW = Some((-2, -1))
-    val N_W = Some((-2, -2))
-    val NNW = Some((-1, -2))
-    val NNN = Some(( 0, -2))
-    val NNE = Some(( 1, -2))
-    val N_E = Some(( 2, -2))
-    val ENE = Some(( 2, -1))
-    val EEE = Some(( 2,  0))
-    val ESE = Some(( 2,  1))
-    val S_E = Some(( 2,  2))
-    val SSE = Some(( 1,  2))
+  val ___ = None
+  val OOO = Some((0, 0))
+  val SSS = Some((0, 2))
+  val SSW = Some((-1, 2))
+  val S_W = Some((-2, 2))
+  val WSW = Some((-2, 1))
+  val WWW = Some((-2, 0))
+  val WNW = Some((-2, -1))
+  val N_W = Some((-2, -2))
+  val NNW = Some((-1, -2))
+  val NNN = Some((0, -2))
+  val NNE = Some((1, -2))
+  val N_E = Some((2, -2))
+  val ENE = Some((2, -1))
+  val EEE = Some((2, 0))
+  val ESE = Some((2, 1))
+  val S_E = Some((2, 2))
+  val SSE = Some((1, 2))
 
-    def combine(flow1: Flow, flow2: Flow): Flow = {
-        if(flow1.isEmpty) flow2 else if(flow2.isEmpty) flow1
-        else Some((round((flow1.get.x + flow2.get.x).toFloat / 2F),
-                   round((flow1.get.z + flow2.get.z).toFloat / 2F)))
-    }
+  def combine(flow1: Flow, flow2: Flow): Flow = {
+    if (flow1.isEmpty) flow2
+    else if (flow2.isEmpty) flow1
+    else
+      Some(
+        (
+          round((flow1.get.x + flow2.get.x).toFloat / 2f),
+          round((flow1.get.z + flow2.get.z).toFloat / 2f)
+        )
+      )
+  }
 }

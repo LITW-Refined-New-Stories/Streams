@@ -12,18 +12,29 @@ import net.minecraft.world._
 package object block {
 
   @SideOnly(CLIENT)
-  def getFlowDirection(w: IBlockAccess, x: Int, y: Int, z: Int, material: Material): Double = {
-    if(w.isInstanceOf[World] || w.isInstanceOf[ChunkCache] || w.isInstanceOf[BlockAccess]) {
+  def getFlowDirection(
+      w: IBlockAccess,
+      x: Int,
+      y: Int,
+      z: Int,
+      material: Material
+  ): Double = {
+    if (
+      w.isInstanceOf[World] || w.isInstanceOf[ChunkCache] || w
+        .isInstanceOf[BlockAccess]
+    ) {
       blockAt(x, y, z)(w) match {
         case block: BlockRiver => // Fixed flow
           val flowVector = block.getFlowVector(w, x, y, z)
-          if(flowVector.xCoord == 0D && flowVector.zCoord == 0D) -1000D
-          else atan2(flowVector.zCoord, flowVector.xCoord) - PI / 2D
+          if (flowVector.xCoord == 0d && flowVector.zCoord == 0d) -1000d
+          else atan2(flowVector.zCoord, flowVector.xCoord) - PI / 2d
         case _ => BlockLiquid.getFlowDirection(w, x, y, z, material)
       }
     } else BlockLiquid.getFlowDirection(w, x, y, z, material)
   }
 
   def isFreshWater(block: Block): Boolean =
-    (block.isInstanceOf[BlockRiver] && block.getMaterial == Material.water) || TFC_Core.isFreshWater(block)
+    (block.isInstanceOf[
+      BlockRiver
+    ] && block.getMaterial == Material.water) || TFC_Core.isFreshWater(block)
 }
