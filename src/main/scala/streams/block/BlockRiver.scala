@@ -34,7 +34,19 @@ class BlockRiver(liquid: MaterialLiquid, val dx: Int, val dz: Int)
 
   private val baseFlowVector = createVectorHelper(dx, 0, dz)
 
-  cloneObject(classOf[BlockLiquid], liquid.stillBlock, this)
+  setHardness(100.0F)
+  disableStats()
+  if (liquid == Material.water) {
+    setLightOpacity(3)
+    setBlockName("water")
+    setBlockTextureName("water_still")
+  }
+  else {
+    setLightLevel(1.0F)
+    setBlockName("lava")
+    setBlockTextureName("lava_still")
+  }
+
   setTickRandomly(liquid == Material.water) // For freezing
   registerBlock(this, s"river/$getUnlocalizedName/$dx/$dz")
 
