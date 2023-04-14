@@ -34,15 +34,14 @@ class BlockRiver(liquid: MaterialLiquid, val dx: Int, val dz: Int)
 
   private val baseFlowVector = createVectorHelper(dx, 0, dz)
 
-  setHardness(100.0F)
+  setHardness(100.0f)
   disableStats()
   if (liquid == Material.water) {
     setLightOpacity(3)
     setBlockName("water")
     setBlockTextureName("water_still")
-  }
-  else {
-    setLightLevel(1.0F)
+  } else {
+    setLightLevel(1.0f)
     setBlockName("lava")
     setBlockTextureName("lava_still")
   }

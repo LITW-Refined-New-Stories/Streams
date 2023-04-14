@@ -10,7 +10,6 @@ import farseek.world._
 import net.minecraft.block.Block._
 import net.minecraft.block.material._
 import streams.block._
-import streams.world.gen.structure.RiverGenerator
 
 /** @author delvr */
 @Mod(
@@ -29,10 +28,6 @@ object StreamsMod extends FarseekBaseMod {
 
   @EventHandler def handle(event: FMLPreInitializationEvent) {
     FixedFlowBlock.getClass // Register river blocks
-    RiverGenerator.surfaceWaterGenerator = new RiverGenerator(
-      Material.water.asInstanceOf[MaterialLiquid],
-      SurfaceDimensionId
-    )
   }
 
   @EventHandler override def handle(event: FMLLoadCompleteEvent) {
