@@ -6,7 +6,6 @@ import cpw.mods.fml.relauncher.Side._
 import cpw.mods.fml.relauncher._
 import farseek.block._
 import farseek.block.material._
-import farseek.util.Reflection._
 import farseek.util._
 import farseek.world.Direction._
 import farseek.world._
