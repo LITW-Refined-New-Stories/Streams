@@ -1,6 +1,6 @@
 # Streams
 
-**__D I S C L A M E R :__** *This fork adds modiciations to depcreate the mod and make it compatible with JAVA 17+! That means that with this fork the mod will not longer generate new rivers but keeps the existing ones to not destroy your existing work.*
+**__D I S C L A M E R :__** *This fork adds modiciations to depcreate the mod and make it compatible with JAVA 17+! That means that with this fork the mod will not longer generate new rivers but keeps the existing ones to not destroy your existing work. This mod is intented to be used explicitely with my [Farseek fork](https://github.com/Pilzinsel64/Farseek)!*
 
 The Streams mod introduces real flowing rivers, with a true current, to Minecraft.
 These rivers are generated in the world using custom non-decaying flowing blocks and are much larger than anything the
